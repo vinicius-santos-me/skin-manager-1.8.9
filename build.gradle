@@ -1,0 +1,67 @@
+// ============================================================
+// build.gradle — SkinManager Mod para Minecraft 1.8.9 + Forge
+// ============================================================
+buildscript {
+    repositories {
+        jcenter()
+        maven { url = "http://files.minecraftforge.net/maven" }
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:2.1-SNAPSHOT'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle.forge'
+
+// ── Identidade do mod ──────────────────────────────────────
+version      = "1.0.0"
+group        = "com.vinicius.skinmanager"
+archivesBaseName = "SkinManager"
+
+// ── Versões alvo ───────────────────────────────────────────
+minecraft {
+    version  = "1.8.9-11.15.1.2318-1.8.9"
+    // Forge build estável para 1.8.9
+    runDir   = "run"
+    mappings = "stable_22"                    // MCP Mappings para 1.8.9
+}
+
+// ── Java 8 ─────────────────────────────────────────────────
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
+// ── Dependências ───────────────────────────────────────────
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Gson já está inclusa no Minecraft/Forge — não precisa adicionar
+    // Se quiser usar uma versão mais nova:
+    // compile 'com.google.code.gson:gson:2.8.9'
+}
+
+// ── Substitui tokens no mcmod.info ─────────────────────────
+processResources {
+    inputs.property "version",   project.version
+    inputs.property "mcversion", project.minecraft.version
+
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version, 'mcversion': project.minecraft.version
+    }
+
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+    }
+}
+
+// ── Jar final com manifest ──────────────────────────────────
+jar {
+    manifest {
+        attributes(
+                'Built-By': System.getProperty('user.name'),
+                'Build-Jdk': System.getProperty('java.version')
+        )
+    }
+}

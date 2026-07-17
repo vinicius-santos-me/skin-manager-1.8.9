@@ -1,0 +1,16 @@
+[
+  {
+    "modid": "skinmanager",
+    "name": "Skin Manager",
+    "description": "Gerencie skins in-game: busque por nick, carregue arquivos locais e mantenha uma galeria personalizada.",
+    "version": "2.1.0",
+    "mcversion": "1.8.9",
+    "url": "",
+    "updateUrl": "",
+    "authorList": ["Vinicius"],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]
