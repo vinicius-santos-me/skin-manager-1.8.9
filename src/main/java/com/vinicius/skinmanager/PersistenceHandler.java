@@ -8,15 +8,22 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 public class PersistenceHandler {
 
     private boolean aguardandoAplicacao = false;
-
-    // Nossa trava de segurança para ler o arquivo apenas UMA vez
     private boolean configCarregada = false;
+
+    // Intervalo entre verificações de integridade (a cada 0.5s) — o
+    // SkinEventHandler já cobre os primeiros frames após o join com mais
+    // intensidade; aqui cuidamos do monitoramento contínuo durante a sessão
+    // (outro mod sobrescrevendo depois de um tempo, etc.) sem custo pesado.
+    private static final int INTERVALO_VERIFICACAO = 10;
+    private int ticksVerificacao = 0;
 
     @SubscribeEvent
     public void onTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+
         Minecraft mc = Minecraft.getMinecraft();
 
-        // 1. CARREGAMENTO SEGURO: Só lê a skin salva quando o OpenGL já estiver ligado!
+        // 1. CARREGAMENTO SEGURO: só lê a skin salva quando o OpenGL já estiver ligado
         if (!configCarregada && mc.getTextureManager() != null) {
             configCarregada = true;
             ConfigManager.carregarUltimaSkin();
@@ -28,19 +35,26 @@ public class PersistenceHandler {
             mc.displayGuiScreen(new GuiSkinManager());
         }
 
-        // 3. O FIX DEFINITIVO DA TROCA DE SKIN (Alarme de persistência)
-        if (SkinManagerMod.skinAtual != null && mc.thePlayer != null && mc.getNetHandler() != null) {
-            NetworkPlayerInfo info = mc.getNetHandler().getPlayerInfo(mc.thePlayer.getUniqueID());
+        // 3. Alarme de persistência — verifica em intervalos, não todo tick
+        if (SkinManagerMod.skinAtual == null || mc.thePlayer == null || mc.getNetHandler() == null) {
+            return;
+        }
 
-            if (info != null && !SkinManagerMod.skinAtual.equals(info.getLocationSkin())) {
-                aguardandoAplicacao = true;
-            }
+        ticksVerificacao++;
+        if (ticksVerificacao < INTERVALO_VERIFICACAO && !aguardandoAplicacao) return;
+        ticksVerificacao = 0;
 
-            if (aguardandoAplicacao) {
-                boolean sucesso = SkinApplier.aplicarSkinEModelo(SkinManagerMod.skinAtual, SkinManagerMod.isSlimAtual);
-                if (sucesso) {
-                    aguardandoAplicacao = false;
-                }
+        NetworkPlayerInfo info = mc.getNetHandler().getPlayerInfo(mc.thePlayer.getUniqueID());
+        if (info == null) return;
+
+        if (!SkinManagerMod.skinAtual.equals(info.getLocationSkin())) {
+            aguardandoAplicacao = true;
+        }
+
+        if (aguardandoAplicacao) {
+            boolean sucesso = SkinApplier.aplicarSkinEModelo(SkinManagerMod.skinAtual, SkinManagerMod.isSlimAtual);
+            if (sucesso) {
+                aguardandoAplicacao = false;
             }
         }
     }

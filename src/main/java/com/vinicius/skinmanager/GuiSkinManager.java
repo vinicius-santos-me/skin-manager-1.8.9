@@ -69,6 +69,8 @@ public class GuiSkinManager extends GuiScreen {
         super.initGui();
         Keyboard.enableRepeatEvents(true);
         SkinApplier.carregarEstadoCapaMenu();
+        this.previewSlim = SkinManagerMod.isSlimAtual;
+        this.isLocalSlim = SkinManagerMod.isSlimAtual;
 
         int colEsquerda = this.width / 2;
         int centroDireita = (this.width / 4) * 3;
@@ -210,22 +212,59 @@ public class GuiSkinManager extends GuiScreen {
             );
 
         } else if (b.id == 2) {
+        	boolean modeloMudou = (previewSlim != SkinManagerMod.isSlimAtual);
+        	SkinManagerMod.LOGGER.info("[GuiSkinManager] Clique em Aplicar -> previewSlim={} isSlimAtual(antes)={} modeloMudou={} previewIsOnline={} previewArquivoLocal={}",
+        	        previewSlim, SkinManagerMod.isSlimAtual, modeloMudou, previewIsOnline,
+        	        previewArquivoLocal != null ? previewArquivoLocal.getName() : "null");
+        	SkinManagerMod.isSlimAtual = previewSlim;
+
             if (previewIsOnline && !previewNickOnline.isEmpty() && previewSkin != null) {
                 SkinManagerMod.skinAtual = previewSkin;
-                SkinManagerMod.isSlimAtual = previewSlim;
+                SkinManagerMod.origemAtual = "ONLINE:" + previewNickOnline;
                 SkinApplier.aplicarSkinEModelo(previewSkin, previewSlim);
-                ConfigManager.salvarUltimaSkin("ONLINE:" + previewNickOnline, previewSlim);
+                ConfigManager.salvarUltimaSkin(SkinManagerMod.origemAtual, previewSlim);
                 ChatHelper.enviar(ChatHelper.VERDE + "Skin de " + ChatHelper.AMARELO + previewNickOnline + ChatHelper.VERDE + " aplicada!");
             } else if (!previewIsOnline && previewArquivoLocal != null) {
                 LocalSkinLoader.carregarSkinLocal(previewArquivoLocal, previewSlim);
                 ChatHelper.enviar(ChatHelper.VERDE + "Skin local " + ChatHelper.AMARELO + previewArquivoLocal.getName() + ChatHelper.VERDE + " aplicada!");
+            } else if (modeloMudou && SkinManagerMod.skinAtual != null) {
+                // Não escolheu skin nova nenhuma — só trocou o modelo.
+                // Reprocessa a imagem crua guardada (com a compensação do
+                // braço Slim se for o caso) em vez de só reaplicar a mesma
+                // textura antiga — que podia ter sido gerada pro modelo
+                // errado.
+                SkinApplier.reaplicarComNovoModelo(previewSlim);
+                if (SkinManagerMod.origemAtual != null) {
+                    ConfigManager.salvarUltimaSkin(SkinManagerMod.origemAtual, previewSlim);
+                }
             }
+
+            // Só avisa "modelo alterado" quando o modelo de fato mudou nesse
+            // clique — trocar só a skin (local ou online) mantendo o mesmo
+            // modelo não deve gerar essa mensagem.
+            if (modeloMudou) {
+                ChatHelper.enviar(ChatHelper.VERDE + "Modelo alterado para " + ChatHelper.AMARELO
+                        + (previewSlim ? "Alex" : "Steve") + ChatHelper.VERDE + " com sucesso!");
+            }
+
+            if (this.mc.thePlayer != null) {
+                try {
+                    SkinApplier.inicializarCampos(); 
+                    if (SkinApplier.campoPlayerInfoCache != null) {
+                        SkinApplier.campoPlayerInfoCache.set(this.mc.thePlayer, null);
+                    }
+                } catch (Exception e) {}
+            }
+
             this.mc.displayGuiScreen(null);
 
         } else if (b.id == 3) {
-            previewSlim = !previewSlim;
+        	previewSlim = !previewSlim;
             this.isLocalSlim = previewSlim;
-
+            
+            // Atualiza apenas o texto visual do botão no menu (se você estiver usando texto)
+            b.displayString = previewSlim ? "Modelo: Alex" : "Modelo: Steve";
+            
         } else if (b.id == 4) {
             previewCapaAtivada = !previewCapaAtivada;
             b.displayString = previewCapaAtivada ? "Capa: ATIVADA" : "Capa: DESATIVADA";
@@ -234,15 +273,16 @@ public class GuiSkinManager extends GuiScreen {
 
         } else if (b.id == 7) {
         	String meuNick = Minecraft.getMinecraft().getSession().getUsername();
-            // Apaga o bloco de notas para não puxar a skin alterada de novo
+            
+            // 1. Apaga o bloco de notas para não puxar a skin alterada ao reiniciar o jogo
             ConfigManager.limparConfig();
-            SkinManagerMod.skinAtual = null; 
             
-            // Busca a skin do seu próprio nick
-            // false (não salvar no txt), false (não mandar o ChatHelper de "Aplicada" para não duplicar mensagem)
-            SkinFetcher.buscarSkinNaMojang(meuNick, null, false, false);
+            // 2. Chama o método de lavagem cerebral! 
+            // Ele já limpa a SkinManagerMod.skinAtual, reseta o modelo e destrói o cache.
+            SkinApplier.resetarSkinOriginal();
             
-            ChatHelper.enviar(ChatHelper.VERDE + "Skin resetada para a original da conta (" + meuNick + ")!");
+            // 3. Avisa no chat e fecha o menu
+            ChatHelper.enviar(ChatHelper.VERDE + "Skin resetada instantaneamente para a original (" + meuNick + ")!");
             this.mc.displayGuiScreen(null);
 
         } else if (b.id == 6) {
@@ -276,7 +316,22 @@ public class GuiSkinManager extends GuiScreen {
                     for (SkinCache sc : cache) {
                         try {
                             BufferedImage raw = ImageIO.read(sc.arquivo);
-                            final BufferedImage img = (raw.getHeight() == 32) ? new ImageBufferDownload().parseUserSkin(raw) : raw;
+                            if (raw == null) continue;
+
+                            // Antes: só passava pelo parseUserSkin() quando a
+                            // imagem tinha 32px de altura; pra qualquer skin
+                            // de 64px usava a imagem CRUA (img = raw), sem
+                            // nenhum saneamento. Esse era um segundo caminho
+                            // de carregamento, separado do LocalSkinLoader.java,
+                            // e é o que alimenta tanto o boneco 3D do menu
+                            // (previewSkin = texCorpo) quanto as miniaturas
+                            // da lista — por isso os pixels de outras partes
+                            // da skin ainda apareciam mesmo depois da
+                            // correção no LocalSkinLoader. Agora os dois
+                            // caminhos usam exatamente o mesmo saneamento.
+                            final BufferedImage img = new ImageBufferDownload().parseUserSkin(raw);
+                            if (img == null) continue;
+
                             mc.addScheduledTask(() -> {
                                 sc.texRosto = mc.getTextureManager().getDynamicTextureLocation("r_" + sc.arquivo.getName(), new DynamicTexture(cortar(img)));
                                 sc.texCorpo = mc.getTextureManager().getDynamicTextureLocation("c_" + sc.arquivo.getName(), new DynamicTexture(img));
